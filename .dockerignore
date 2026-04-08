@@ -1,0 +1,24 @@
+# --- Ignore Source Code Not Needed for Production ---
+frontend/
+node_modules/
+.venv/
+venv/
+
+# --- Ignore All Logs and Local Data ---
+logs/
+training_logs/
+server/logs/
+server/training_logs/
+data/
+
+# --- Ignore Version Control and IDEs ---
+.git/
+.gitignore
+.vscode/
+README.md
+
+# --- Ignore Sensitive Local Config ---
+.env
+
+# --- Ignore Python Cache ---
+**/__pycache__/

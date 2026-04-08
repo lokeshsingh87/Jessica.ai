@@ -1,0 +1,19 @@
+# --- Core OpenEnv & Server ---
+openenv[core]>=0.1.3
+fastapi>=0.115.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# --- AI & Inference (Groq/Meta Llama) ---
+openai>=1.10.0
+
+# --- File Processing ---
+
+pymupdf>=1.23.0
+pypdf>=4.0.0
+pandas>=2.0.0
+
+# --- Utils ---
+python-multipart>=0.0.9
+jinja2>=3.1.0

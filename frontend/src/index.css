@@ -1,0 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@source "../index.html";
+@source "./**/*.{js,ts,jsx,tsx}";
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --color-brand-tan: #d6c4b0;
+  --color-brand-tan-muted: #8c7e6e;
+  --color-brand-matte: #0a0a0a;
+  --color-brand-border: rgba(214, 196, 176, 0.15);
+}
+
+@utility hairline-border {
+  @apply border border-brand-border;
+}
+
+@utility hairline-border-b {
+  @apply border-b border-brand-border;
+}
+
+@utility hairline-border-r {
+  @apply border-r border-brand-border;
+}
+
+@utility glass-panel {
+  @apply bg-white/2 backdrop-blur-sm hairline-border;
+}
+
+@layer base {
+  body {
+    @apply bg-brand-matte text-brand-tan/80 font-sans antialiased selection:bg-brand-tan/30 selection:text-white;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight text-brand-tan;
+  }
+}

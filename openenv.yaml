@@ -1,0 +1,69 @@
+name: "legal_auditor_env"
+version: "1.0.0"
+description: >
+  A Reinforcement Learning environment for automated legal risk auditing
+  with symmetric penalty rewards and dual-track grading.
+
+runtime:
+  port: 7860
+  host: "0.0.0.0"
+  max_concurrent_envs: 100
+  timeout: 1200          # 20 minutes (Mandatory Hackathon Cap)
+
+resources:
+  cpus: 2                # Mandatory Infra Restriction
+  memory: "8Gi"          # Mandatory 8GB RAM Restriction
+
+# Required environment variables (Checklist Item 7)
+env_vars:
+  API_BASE_URL:
+    description: "Base URL of the OpenAI-compatible LLM endpoint"
+    required: true
+  MODEL_NAME:
+    description: "Model identifier used for inference"
+    required: true
+  HF_TOKEN:
+    description: "API key / Hugging Face token"
+    required: true
+    secret: true
+
+# OpenEnv spec compliance (Endpoints)
+endpoints:
+  reset: { method: POST, path: /reset }
+  step:  { method: POST, path: /step }
+  state: { method: GET,  path: /state }
+
+# Grading specification (Checklist Item 5)
+grading:
+  reward_range: [0.0, 1.0] # Validator strict range
+  score_aggregation: mean
+  tasks:
+    - id: basic_compliance
+      weight: 1.0
+    - id: risk_audit
+      weight: 1.0
+    - id: clause_conflict
+      weight: 1.0
+
+# 3+ Distinct Tasks (Checklist Item 6)
+tasks:
+  - id: "basic_compliance"
+    difficulty: "easy"
+    clauses: 3
+    reward_range: [0.0, 1.0]
+
+  - id: "risk_audit"
+    difficulty: "medium"
+    clauses: 3
+    reward_range: [0.0, 1.0]
+
+  - id: "clause_conflict"
+    difficulty: "hard"
+    clauses: 3
+    reward_range: [0.0, 1.0]
+
+framework:
+  type: "gymnasium"
+  observation_space: "textual"
+  action_space: "discrete"
+  action_dim: 2

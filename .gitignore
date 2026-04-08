@@ -1,0 +1,30 @@
+# --- Byte-compiled / optimized / DLL files ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Environments & Dependencies ---
+.venv/
+venv/
+env/
+node_modules/
+
+# --- Build Artifacts ---
+frontend/dist/
+server/dist/
+*.egg-info/
+dist/
+build/
+
+# --- Project Specific Data & Logs ---
+.env
+logs/
+training_logs/
+server/logs/
+server/training_logs/
+data/
+
+# --- System & IDE ---
+.vscode/
+.DS_Store
+Thumbs.db
