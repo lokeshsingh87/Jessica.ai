@@ -226,7 +226,7 @@ def main():
                 "local_step":         local_idx,
                 # Core RL signal
                 "action":             action,
-                "reward":             reward,
+                "reward":             normalized_step_reward,  # [0.0–1.0] per validator req
                 "done":               is_last,
                 # Oracle integration
                 "oracle":             is_risk,
@@ -249,7 +249,7 @@ def main():
                 "task_id": task_id,
                 "local_step": local_idx,
                 "action": action,
-                "reward": reward,
+                "reward": normalized_step_reward,  # [0.0–1.0] per validator req
                 "done": is_last,
                 "oracle": is_risk,
                 "oracle_grade": oracle_grade,
@@ -310,9 +310,7 @@ if __name__ == "__main__":
         # 3. Save to 'training_logs/' (For the Live Chart in the Dashboard)
         with open(os.path.join("training_logs", "current_run.json"), "w") as f:
             json.dump(final_audit_results, f, indent=2)
-            
-        print(f"\n[SYSTEM] Audit Complete. Session ID: {session_id}")
-        print(f"[SYSTEM] Data archived to logs/ and training_logs/")
+        
         # --- ARCHIVE LOGIC END ---
 
     except Exception as exc:

@@ -1,19 +1,25 @@
 # --- Core OpenEnv & Server ---
-openenv[core]>=0.1.3
+
+openenv[core]==0.1.3
 fastapi>=0.115.0
 uvicorn>=0.24.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
+python-multipart>=0.0.9
 
-# --- AI & Inference (Groq/Meta Llama) ---
+# --- AI & Inference ---
+# Needed for the Groq client and OpenEnv bridge
 openai>=1.10.0
+groq>=0.4.2
 
-# --- File Processing ---
+# --- File Processing & Export ---
 
+reportlab>=4.1.0
 pymupdf>=1.23.0
 pypdf>=4.0.0
 pandas>=2.0.0
 
 # --- Utils ---
-python-multipart>=0.0.9
 jinja2>=3.1.0
+tqdm>=4.66.0
+numpy>=1.26.0

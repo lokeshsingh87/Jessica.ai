@@ -12,16 +12,15 @@ import mimetypes
 import uvicorn
 import pathlib
 import fitz  # PyMuPDF
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from fastapi import File, Path, UploadFile, HTTPException, Request, Header, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.concurrency import run_in_threadpool
 
-env_path = pathlib.Path(__file__).resolve().parent.parent / '.env'
-load_dotenv(dotenv_path=env_path)
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN") 
+load_dotenv(find_dotenv())
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN","dev_secret_zoro") 
 MAX_FILE_BYTES = int(os.environ.get("MAX_FILE_BYTES", 5242880))
 MAX_CLAUSES = int(os.environ.get("MAX_CLAUSES", 200))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -43,9 +42,8 @@ except ImportError:
     generate_user_report_pdf = None   # type: ignore
 
 # CORS — read from env; fall back to localhost only
-_raw_origins = os.environ.get(
-    "ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:7860"
-)
+_default_origins = "http://localhost:3000,http://localhost:7860,https://*.hf.space"
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", _default_origins)
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 LOG_DIR = "logs"
@@ -121,8 +119,10 @@ def _validate_session_id(session_id: str):
         raise HTTPException(status_code=400, detail="Invalid session ID format.")
 
 # ── Session token verifier ────────────────────────────────────────────────────
-async def verify_session_access(session_id: str, provided_token: str):
+async def verify_session_access(session_id: str, provided_token: str, x_admin_token: str = Header(None)):
     # 1. Basic ID Validation
+    if x_admin_token and secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+        return True
     _validate_session_id(session_id)
 
     # 2. File Path Construction
@@ -330,42 +330,80 @@ async def get_session_data(
         return json.load(f)
 
 # ── /export/report/{session_id} ───────────────────────────────────────────────
+import importlib.util
+
 @app.get("/export/report/{session_id}")
-async def export_user_report(session_id: str, x_session_token: str = Header(None)):
-    await verify_session_access(session_id, x_session_token)
+async def export_user_report(session_id: str, x_session_token: str = Header(None), x_admin_token: str = Header(None)):
+    await verify_session_access(session_id, x_session_token, x_admin_token)
     
-    if generate_user_report_pdf is None:
-        raise HTTPException(status_code=501, detail="User report generator not found.")
+    # 🚩 DYNAMIC IMPORT: Force Python to find the file in the same directory
+    module_path = os.path.join(os.path.dirname(__file__), "user_report_generator.py")
+    spec = importlib.util.spec_from_file_location("user_report_generator", module_path)
+    
+    # Check if spec and loader exist before using them
+    if spec is None or spec.loader is None:
+        raise HTTPException(
+            status_code=501, 
+            detail=f"User report generator not found at {module_path}"
+        )
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    gen_func = getattr(module, "generate_user_report_pdf", None)
+
+    if gen_func is None:
+        raise HTTPException(status_code=501, detail="User report generator function not found.")
     
     filepath = os.path.join(LOG_DIR, f"session_{session_id}.json")
     with open(filepath) as f:
         data = json.load(f)
 
-    # CRITICAL: Return the bytes directly into the stream and add headers
-    pdf_bytes = generate_user_report_pdf(data, session_id)
+    pdf_bytes = gen_func(data, session_id)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
             "Content-Disposition": f"attachment; filename=Legal_Analysis_{session_id}.pdf",
-            "Content-Type": "application/pdf",
-            "Content-Length": str(len(pdf_bytes))
+            "Content-Type": "application/pdf"
         }
     )
-
+# ── /export/{session_id} ──────────────────────────────────────────────────────
 # ── /export/{session_id} ──────────────────────────────────────────────────────
 @app.get("/export/{session_id}")
-async def export_oracle_pdf(session_id: str, x_session_token: str = Header(None)):
-    await verify_session_access(session_id, x_session_token)
+async def export_oracle_pdf(
+    session_id: str, 
+    x_session_token: str = Header(None), 
+    x_admin_token: str = Header(None)
+):
+    await verify_session_access(session_id, x_session_token, x_admin_token)
     
-    if generate_audit_pdf is None:
-        raise HTTPException(status_code=501, detail="Oracle PDF generator not found.")
+    # 🚩 DYNAMIC IMPORT for the Oracle Generator
+    module_path = os.path.join(os.path.dirname(__file__), "pdf_generator.py")
+    spec = importlib.util.spec_from_file_location("pdf_generator", module_path)
+    
+    if spec is None or spec.loader is None:
+        raise HTTPException(
+            status_code=501, 
+            detail=f"Oracle PDF generator file not found at {module_path}"
+        )
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    gen_func = getattr(module, "generate_audit_pdf", None)
+
+    if gen_func is None:
+        raise HTTPException(
+            status_code=501, 
+            detail="Oracle PDF generator function 'generate_audit_pdf' not found in module."
+        )
     
     filepath = os.path.join(LOG_DIR, f"session_{session_id}.json")
     with open(filepath) as f:
         data = json.load(f)
 
-    pdf_content = generate_audit_pdf(data, session_id)
+    # Use the dynamically loaded function
+    pdf_content = gen_func(data, session_id)
+    
     return Response(
         content=pdf_content,
         media_type="application/pdf",
