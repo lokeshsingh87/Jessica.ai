@@ -1,32 +1,74 @@
-⚖️ Legal Auditor AI Environment
-An automated legal contract auditing environment built for the Meta OpenEnv Hackathon. This project leverages Reinforcement Learning patterns to train and evaluate AI agents on their ability to detect high-risk clauses in professional contracts.
+---
+title: Jessica.ai - Legal Auditor
+emoji: ⚖️
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
 
-🌟 Overview
-Unlike a simple text-processing script, this environment uses the LexGLUE/LEDGAR dataset—a collection of 60,000+ labeled legal clauses—to provide a realistic "Gym" for AI auditors.
+# ⚖️ Jessica.ai: AI-Powered Legal Auditor
 
-The environment presents a legal clause, and the Agent must decide whether to Flag (1) it as a risk or mark it as Safe (0).
+**Jessica.ai** is a high-performance legal contract analysis platform built for the **Meta AI Hackathon (by Scaler)**. It leverages **OpenEnv** and **Groq (Meta Llama 3)** to provide real-time risk assessment, clause grading, and automated PDF report generation.
 
-🚀 Quick Start
-1. Prerequisites
-Docker Desktop (WSL2 Integration enabled)
+---
 
-Python 3.10+
+## 🚀 Key Features
+- **Intelligent Contract Parsing**: Automated text extraction from PDF and Text contracts via PyMuPDF.
+- **Oracle Grading Engine**: Powered by **Meta Llama 3** for institutional-grade legal reasoning and sub-second responses.
+- **OpenEnv Sandbox**: An RL-inspired simulation environment to audit legal clauses against safety and compliance standards.
+- **Dynamic PDF Generation**: Generates professional, ready-to-print legal audit reports using ReportLab.
+- **Developer API**: High-speed FastAPI backend for session management and JSON/PDF data export.
 
-Hugging Face Token (Read Access)
+## 🛠️ Tech Stack & Architecture
+- **AI/ML**: Meta Llama 3 (via Groq), OpenEnv Core 0.1.3
+- **Backend**: FastAPI (Python 3.11)
+- **PDF Engine**: ReportLab & PyMuPDF (fitz)
+- **Containerization**: Docker (Optimized for Hugging Face Spaces)
 
-2. Environment Variables
-You must export these variables in your terminal so the inference.py and the server can communicate with the LLM router:
-export HF_TOKEN="your_huggingface_read_token"
-export MODEL_NAME="meta-llama/Llama-3.1-8B-Instruct"
-export API_BASE_URL="https://router.huggingface.co/v1"
-3. Running with Docker (Recommended)
-This is the "Submission-Ready" way to run the project:
+---
+
+## 📦 Docker & Local Execution
+
+### 1. Environment Configuration
+To run this project, ensure you have the following environment variables set (either in a `.env` file or as Hugging Face Secrets):
+
+| Variable | Description |
+| :--- | :--- |
+| `HF_TOKEN` | Your Groq API Key (used as a placeholder for OpenEnv) |
+| `GROQ_API_KEY` | Your Groq API Key (for the Oracle Engine) |
+| `ADMIN_TOKEN` | Your secure password for PDF exports (e.g., `dev_secret_zoro`) |
+| `ALLOWED_ORIGINS` | The URL of your frontend or HF Space |
+
+### 2. Execution Commands
+Build and run the container with these commands:
+
+```bash
 # Build the image
-docker build -t legal_auditor .
+docker build -t jessica-ai .
 
-# Start the environment server
-docker run -p 8000:8000 -e HF_TOKEN=$HF_TOKEN legal_auditor
-4. Running the Auditor (Inference)
-In a separate terminal window, execute the agent logic:
-export PYTHONPATH=$PYTHONPATH:.
-uv run python inference.py
+# Run the container locally
+docker run -p 7860:7860 \
+  -e HF_TOKEN=your_key \
+  -e GROQ_API_KEY=your_key \
+  -e ADMIN_TOKEN=dev_secret_zoro \
+  jessica-ai
+
+Security & Access Logic
+Jessica.ai implements a multi-layered security architecture:
+
+Session Isolation: Each audit is assigned a unique UUID. Users can only access data associated with their specific x-session-token.
+
+Admin Verification: Sensitive endpoints (like /developer/sessions and PDF exports) are protected by a custom verify_session_access middleware.
+
+Secret Masking: Access tokens are verified using secrets.compare_digest to prevent timing attacks.
+
+CORS Protection: The API only accepts requests from trusted origins defined in the environment.
+
+👤 Author
+Lokesh (M0SSHEAD)
+Computer Science Graduate & AI Developer
+Specializing in AI Safety, Legal Tech, and Scalable Backend Systems.
+
+Developed for the Meta AI Hackathon organized by Scaler (April 2026).
