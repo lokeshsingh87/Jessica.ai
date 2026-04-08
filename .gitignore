@@ -12,7 +12,6 @@ node_modules/
 # --- Build Artifacts ---
 frontend/dist/
 *.egg-info/
-dist/
 build/
 
 # --- Project Specific Data & Logs ---

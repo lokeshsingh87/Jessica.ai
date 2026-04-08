@@ -125,9 +125,9 @@ def _validate_session_id(session_id: str):
         raise HTTPException(status_code=400, detail="Invalid session ID format.")
 
 # ── Session token verifier ────────────────────────────────────────────────────
-async def verify_session_access(session_id: str, provided_token: str, x_admin_token: str = Header(None)):
+async def verify_session_access(session_id: str, provided_token: str|None, x_admin_token: str | None = None):
     # 1. Basic ID Validation
-    if x_admin_token and secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+    if x_admin_token and secrets.compare_digest(str(x_admin_token), ADMIN_TOKEN):
         return True
     _validate_session_id(session_id)
 
@@ -172,13 +172,11 @@ async def verify_session_access(session_id: str, provided_token: str, x_admin_to
     return True
 # ── Admin token guard ─────────────────────────────────────────────────────────
 async def require_admin(x_admin_token: str = Header(None)):
-    if ADMIN_TOKEN == "dev_secret_zoro":
-        return True
     if not ADMIN_TOKEN:
         raise HTTPException(status_code=503, detail="Admin endpoints disabled (ADMIN_TOKEN not set).")
     if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
         raise HTTPException(status_code=403, detail="Unauthorized.")
-
+    return True
 # ── PDF text extractor ────────────────────────────────────────────────────────
 def _extract_pdf_text_sync(content: bytes) -> str:
     doc = fitz.open(stream=content, filetype="pdf")
@@ -297,8 +295,9 @@ async def list_sessions():
 async def get_session_stats(
     session_id: str,
     x_session_token: str = Header(None),
+    x_admin_token: str = Header(None),
 ):
-    await verify_session_access(session_id, x_session_token)
+    await verify_session_access(session_id, x_session_token, x_admin_token)
     filepath = os.path.join(LOG_DIR, f"session_{session_id}.json")
     with open(filepath) as f:
         data = json.load(f)
