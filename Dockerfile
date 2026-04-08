@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
+RUN mkdir -p /app/server/dist/assets
+COPY . .
 # 2. Upgrade pip and install OpenEnv
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 # openenv[core] installs the base package; openenv-core provides the openenv.core subpackage

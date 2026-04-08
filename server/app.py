@@ -98,7 +98,13 @@ TRAINING_LOG_DIR = os.path.join(current_dir, "training_logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(TRAINING_LOG_DIR, exist_ok=True)
 
-app.mount("/assets", ForceStaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")
+assets_path = os.path.join(dist_path, "assets")
+
+# Only mount if the directory exists
+if os.path.exists(assets_path):
+    app.mount("/assets", ForceStaticFiles(directory=assets_path), name="assets")
+else:
+    print(f"⚠️ Warning: Static assets directory not found at {assets_path}")
 
 # 3. Mount Logs for direct access
 app.mount("/api/logs", StaticFiles(directory=LOG_DIR), name="logs")
