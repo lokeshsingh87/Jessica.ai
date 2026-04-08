@@ -443,5 +443,19 @@ async def serve_react_app(catchall: str):
     
     # Fallback to index.html for React Router
     return FileResponse(os.path.join(dist_path, "index.html"))
+def main():
+    """
+    OpenEnv Entry Point: 
+    Allows the server to be started directly via python -m server.app
+    """
+    import uvicorn
+    # Use the same settings as your Docker CMD
+    uvicorn.run(
+        "server.app:app", 
+        host="0.0.0.0", 
+        port=7860, 
+        reload=False
+    )
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    main()
