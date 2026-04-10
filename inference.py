@@ -1,19 +1,3 @@
-# Copyright (c) 2026 Zoro - Legal Auditor RL Project — PATCHED v3
-# inference.py — ROOT-LEVEL ENTRY POINT
-#
-# Checklist satisfied:
-#   [START] / [STEP] / [END] strict JSON-line stdout format
-#   OpenAI Python client constructed directly here
-#   API_BASE_URL, MODEL_NAME, HF_TOKEN read from os.environ
-#   Rewards in [-1.0, 1.0] — symmetric penalty: FP = -0.4, FN = -1.0
-#   Overall/task scores normalised to [0.0, 1.0] in END line
-#   3 distinct tasks, independently scored
-#   Difficulty-weighted reward: hard correct = 1.0, medium = 0.8, easy = 0.6
-#   Dual grading: oracle_grade (accuracy) + ai_grade (severity confidence)
-#   Oracle fully integrated: ground truth side-loaded before every step
-#   Oracle active (oracle: true) for ALL 9 curriculum clauses
-#   Prompt-injection sanitizer on every clause before LLM call
-#   No local model loading
 
 import os
 import sys
@@ -289,12 +273,15 @@ def main():
         # ── Per-task summary ─────────────────────────────────────────────────
         raw_task_score = sum(step_rewards) / len(step_rewards)           # in [-1, 1]
         task_score     = round((raw_task_score + 1.0) / 2.0, 4)         # normalise → [0, 1]
+        # Clamp strictly inside (0, 1) — validator rejects exact 0.0 or 1.0
+        task_score     = round(max(0.01, min(0.99, task_score)), 4)
         task_accuracy  = round(sum(step_oracles) / len(step_oracles), 4)
         task_scores[task_id] = task_score
 
     # ── Overall scores ────────────────────────────────────────────────────────
     overall_reward = round(
-        max(0.0, min(1.0, sum(task_scores.values()) / len(task_scores))),
+        # Clamp strictly inside (0, 1) — validator rejects exact 0.0 or 1.0
+        max(0.01, min(0.99, sum(task_scores.values()) / len(task_scores))),
         4,)
     
 
