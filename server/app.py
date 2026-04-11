@@ -1,4 +1,3 @@
-
 import os
 import sys
 import re
@@ -74,6 +73,14 @@ app = create_app(
     env_name         = "legal_auditor_env",
     max_concurrent_envs = 100,
 )
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": time.time()}
+
+@app.post("/reset")
+async def reset_proxy():
+    return {"status": "ok"}
+
 class ForceStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         response = await super().get_response(path, scope)
@@ -87,8 +94,16 @@ app.middleware("http")(rate_limit_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins  = ALLOWED_ORIGINS,
-    allow_methods  = ["GET", "POST"],
-    allow_headers  = ["*"],
+    allow_methods  = ["GET", "POST", "OPTIONS"],
+    allow_credentials=True,
+    allow_headers=[
+        "Content-Type",
+        "Set-Cookie",
+        "Access-Control-Allow-Headers",
+        "Authorization",
+        "x-session-token",  
+        "x-admin-token",   
+    ],
 )
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -106,9 +121,7 @@ if os.path.exists(assets_path):
 else:
     print(f"⚠️ Warning: Static assets directory not found at {assets_path}")
 
-# 3. Mount Logs for direct access
-app.mount("/api/logs", StaticFiles(directory=LOG_DIR), name="logs")
-app.mount("/api/training", StaticFiles(directory=TRAINING_LOG_DIR), name="training")
+# Patch 1: /api/logs and /api/training static mounts removed — direct log access disabled.
 
     # 3. Serve the index.html for the root path
 @app.get("/", tags=["UI"])
@@ -146,15 +159,12 @@ async def verify_session_access(session_id: str, provided_token: str|None, x_adm
         # Get the token from the first entry of the log
         stored_token = data[0].get("session_token") if data else None
 
-        # --- THE LEGACY SUPPORT LOGIC ---
-        
-        # CASE A: This is a legacy file (created before tokens were added).
-        # There is no stored token, so we allow access to prevent data loss.
         if stored_token is None:
-            return True 
-            
-        # CASE B: This is a secure file.
-        # A token exists in the file, so the user MUST provide a matching token.
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized: Session has no security token. Access denied."
+            )
+
         if not provided_token or not secrets.compare_digest(provided_token, stored_token):
             raise HTTPException(
                 status_code=403, 
@@ -225,7 +235,7 @@ async def run_audit(file: UploadFile = File(...)):
         
         # Prepare AI Report Data (User-Facing)
         clean_result = result.copy()
-        clean_result["reward"] = round(max(0.0, min(1.0, float(clean_result.get("reward", 0.0)))), 4)
+        clean_result["reward"] = round(max(0.01, min(0.99, float(clean_result.get("reward", 0.0)))), 4)
         # 🚩 CRITICAL: We keep the session_token in the first record for the verifier
         if i == 0:
             clean_result["session_token"] = session_token
@@ -239,8 +249,8 @@ async def run_audit(file: UploadFile = File(...)):
             "clause_index": i,
             "text": text,
             "ground_truth": oracle_data,
-            "ai_action": clean_result.get("action"),
-            "ai_reward": clean_result.get("reward"),
+            "ai_action": clean_result["action"],
+            "ai_reward": clean_result["reward"],
             "timestamp": time.time()
         }
         training_data.append(training_entry)
@@ -431,18 +441,22 @@ async def serve_spa(full_path: str):
 # 4. The Final Catch-All Route
 @app.get("/{catchall:path}")
 async def serve_react_app(catchall: str):
-    # Security: Don't let the UI "eat" API calls
+    # 1. Protection: Ensure the UI doesn't intercept OpenEnv or project APIs
     api_prefixes = ("audit", "developer", "export", "stats", "data", "reset", "step", "state", "health")
-    if catchall.startswith(api_prefixes):
+    if any(catchall.startswith(prefix) for prefix in api_prefixes):
          return JSONResponse(status_code=404, content={"detail": "API route not found"})
          
-    # Try to serve the actual file (like index-BI2ghD_z.js)
+    # 2. Try to serve the actual physical file (e.g., from your 'dist' folder)
     file_path = os.path.join(dist_path, catchall)
     if os.path.isfile(file_path):
         return FileResponse(file_path)
     
-    # Fallback to index.html for React Router
-    return FileResponse(os.path.join(dist_path, "index.html"))
+    # 3. Fallback to index.html to support React Router (Vite)
+    index_path = os.path.join(dist_path, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    
+    return JSONResponse(status_code=404, content={"detail": "Static files not found"})
 def main():
     """
     OpenEnv Entry Point: 

@@ -33,10 +33,10 @@ HF_TOKEN     = os.environ.get("HF_TOKEN",     "")
 MODEL_NAME   = os.environ.get("MODEL_NAME",   "llama-3.3-70b-versatile")
 
 # ── Reward constants — single source of truth (mirrored in inference.py) ────
-REWARD_TRUE_POSITIVE  = 1.0
-REWARD_TRUE_NEGATIVE  = 0.8
-REWARD_FALSE_POSITIVE = 0.2
-REWARD_FALSE_NEGATIVE = 0.0
+REWARD_TRUE_POSITIVE  = 0.99
+REWARD_TRUE_NEGATIVE  = 0.80
+REWARD_FALSE_POSITIVE = 0.20
+REWARD_FALSE_NEGATIVE = 0.01
 
 # ── Task curriculum ───────────────────────────────────────────────────────────
 TASK_DATA: Dict[str, List[str]] = {
@@ -102,6 +102,7 @@ class LegalAuditorEnvironment(
         self.current_reliability = 0.5
         self.analysis_confidence = 1.0
         self.session_buffer      = []
+        # Loads correct curriculum based on task_id
         self.current_doc_clauses = list(TASK_DATA.get(task_id, TASK_DATA["default"]))
         return self._get_current_obs()
 
@@ -114,40 +115,45 @@ class LegalAuditorEnvironment(
         return LegalAuditorObservation(
             clause_text       = text,
             clause_index      = self.clause_index,
-            agent_reliability = round(self.current_reliability, 4),
-            ai_analysis_grade = round(self.analysis_confidence, 4),
+            agent_reliability = round(max(0.01, min(0.99, self.current_reliability)), 4),
+            ai_analysis_grade = round(max(0.01, min(0.99, self.analysis_confidence)), 4),
             is_risk_detected  = False,
         )
 
     def state(self) -> LegalAuditorState:
+        # Note: total_reward is an accumulator, but internal states are clamped
         return LegalAuditorState(
             total_reward        = round(float(self.total_agent_reward), 4),
             processed_steps     = self.clause_index,
-            current_reliability = round(self.current_reliability, 4),
-            analysis_confidence = round(self.analysis_confidence, 4),
+            current_reliability = round(max(0.01, min(0.99, self.current_reliability)), 4),
+            analysis_confidence = round(max(0.01, min(0.99, self.analysis_confidence)), 4),
         )
 
     def step(
         self, action: LegalAuditorAction
     ) -> Tuple[LegalAuditorObservation, float, bool, Dict[str, Any]]:
+        # Handle terminal state boundary
         if self.clause_index >= len(self.current_doc_clauses):
-            return self._get_current_obs(), 0.0, True, {}
+            return self._get_current_obs(), 0.01, True, {}
 
         text        = self.current_doc_clauses[self.clause_index]
         oracle_data = oracle_judge.evaluate_clause(text)
         label       = int(oracle_data["is_actually_risk"])
 
+        # Use the updated constants (REWARD_TRUE_POSITIVE = 0.99, etc.)
         if   action.action == 1 and label == 1: raw_reward = REWARD_TRUE_POSITIVE
         elif action.action == 0 and label == 0: raw_reward = REWARD_TRUE_NEGATIVE
         elif action.action == 1 and label == 0: raw_reward = REWARD_FALSE_POSITIVE
         else:                                   raw_reward = REWARD_FALSE_NEGATIVE
 
-        # Clamp at the environment level as a safety net
-        reward = round(max(0.0, min(1.0, raw_reward)), 4)
+        # ── CRITICAL CHANGE: Clamp reward strictly between 0.01 and 0.99 ──
+        reward = round(max(0.01, min(0.99, raw_reward)), 4)
 
         self.total_agent_reward  += reward
         self.clause_index        += 1
-        self.current_reliability  = round(self.total_agent_reward / self.clause_index, 4)
+        
+        # Recalculate reliability based on clamped rewards
+        self.current_reliability  = self.total_agent_reward / self.clause_index
         self.analysis_confidence  = reward
 
         self.session_buffer.append({
@@ -165,7 +171,14 @@ class LegalAuditorEnvironment(
         })
 
         done = self.clause_index >= len(self.current_doc_clauses)
-        return self._get_current_obs(), reward, done, {"ai_grade": self.analysis_confidence}
+        
+        # Return observation and the strictly clamped reward
+        return (
+            self._get_current_obs(), 
+            reward, 
+            done, 
+            {"ai_grade": round(max(0.01, min(0.99, self.analysis_confidence)), 4)}
+        )
 
 
 # ── UserLegalAuditor (used by app.py and inference.py via get_auditor) ───────

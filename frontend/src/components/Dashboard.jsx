@@ -268,7 +268,22 @@ const UploadSection = ({ onUploadSuccess }) => {
   const handleDragOver  = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
   const handleDrop      = (e) => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) setFile(f); };
-
+  useEffect(() => {
+    if (done && sessionId && sessionToken) {
+      try {
+        const existingTokens = JSON.parse(localStorage.getItem('vault_tokens') || '{}');
+        if (!existingTokens[sessionId]) {
+          localStorage.setItem('vault_tokens', JSON.stringify({
+            ...existingTokens,
+            [sessionId]: sessionToken
+          }));
+          console.log(`[FRONTEND-SECURITY] Session ${sessionId} vault-locked.`);
+        }
+      } catch (e) {
+        console.error("Vault write failure:", e);
+      }
+    }
+  }, [done, sessionId, sessionToken]);
   const handleUpload = async () => {
     if (!file) return;
     setLoading(true);
@@ -278,117 +293,128 @@ const UploadSection = ({ onUploadSuccess }) => {
     formData.append('file', file);
 
     try {
+      // Ensure the endpoint matches your FastAPI route
       const res = await axios.post('/audit', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (e) => setProgress(Math.round((e.loaded * 100) / e.total)),
       });
 
-      // 1. Destructure the response
+      // 1. Destructure the updated security fields
       const { data, session_id, session_token } = res.data;
       
       if (Array.isArray(data)) {
         const synced = data.map((item, i) => ({
           ...item,
           step: i + 1,
+          // Fallback rationale if the AI fails
           warning: item.warning || 'Audit confirmed compliant by agent.',
         }));
         
-        // 2. Persistent Storage (The "History" Fix)
-        // This ensures the sidebar can "unlock" this session after a refresh
+        // 2. Persistent Vault Storage
+        // We store the token keyed by the session_id for zero-friction retrieval
         const existingTokens = JSON.parse(localStorage.getItem('vault_tokens') || '{}');
         localStorage.setItem('vault_tokens', JSON.stringify({
           ...existingTokens,
           [session_id]: session_token
         }));
 
-        // 3. Update UI State
+        // 3. Update UI State with the new token
+        // Ensure your parent component's onUploadSuccess can handle the 4th argument
         onUploadSuccess(synced, session_id, file.name, session_token);
         setSessionId(session_id);
         setSessionToken(session_token); 
         setDone(true);
       } else {
-        throw new Error('Audit returned no data.');
+        throw new Error('Audit protocol returned malformed data.');
       }
       
     } catch (err) {
-      const msg = err.response?.data?.detail || err.message || 'Connection lost to backend.';
-      alert(`Audit Error: ${msg}`);
+      // Improved error reporting for security blocks (like 403 or 429)
+      const msg = err.response?.data?.detail || err.message || 'Connection lost to neural gateway.';
+      alert(`Protocol Error: ${msg}`);
     } finally {
       setLoading(false);
       setProgress(0);
     }
 };
-  if (done) {
-  // 🚩 STEP 1: Immediately burn the token into the Vault for future persistence
-  // This ensures that even if you don't 'copy' it, the browser remembers it.
-  const updateVault = () => {
-    const existingTokens = JSON.parse(localStorage.getItem('vault_tokens') || '{}');
-    if (sessionId && sessionToken && !existingTokens[sessionId]) {
-      localStorage.setItem('vault_tokens', JSON.stringify({
-        ...existingTokens,
-        [sessionId]: sessionToken
-      }));
-    }
-  };
-  updateVault();
-
+  if (done) { // Dependencies ensure it only runs when these change
   return (
     <div className="mb-8 sm:mb-12">
-      <SectionLabel>Audit Protocol Complete</SectionLabel>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-panel p-8 flex flex-col items-center text-center border-emerald-500/10"
-      >
-        <div className="w-16 h-16 hairline-border flex items-center justify-center mb-4 text-emerald-500 bg-emerald-500/5">
-          <Shield size={28} />
-        </div>
-        
-        <h3 className="font-display font-bold text-brand-tan mb-1">Audit Synchronized</h3>
-        
-        {/* --- ENHANCED SECURE TOKEN BOX --- */}
-        <div className="my-6 p-6 bg-black/60 hairline-border w-full max-w-md">
-          <div className="flex items-center justify-center gap-2 mb-4">
-             <Lock size={12} className="text-brand-tan/40" />
-             <p className="text-[10px] font-mono text-brand-tan/40 uppercase tracking-[0.2em]">
-               Master Session Key
-             </p>
-          </div>
-          
-          <div className="flex flex-col gap-3">
-            <code className="text-[11px] font-mono text-emerald-400 bg-white/5 p-4 border border-brand-tan/10 break-all text-left">
-              {sessionToken || 'GENERATING_KEY...'} 
-            </code>
-            
-            <button 
-              onClick={() => {
-                navigator.clipboard.writeText(sessionToken);
-                alert("Master Key copied to clipboard. Store this safely!");
-              }}
-              className="w-full bg-brand-tan text-brand-matte py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-brand-tan-muted transition-all"
-            >
-              Copy Master Key
-            </button>
-          </div>
-
-          <p className="text-[9px] text-brand-tan/30 mt-4 leading-relaxed italic">
-            This key has been added to your local vault. <br/>
-            You will need this to access this audit from other devices.
-          </p>
-        </div>
-
-        <p className="text-[10px] font-mono text-brand-tan/40 mb-8 uppercase tracking-widest">
-          Vault Reference: <span className="text-brand-tan">#{sessionId}</span>
-        </p>
-        
-        <button
-          onClick={() => { setDone(false); setFile(null); }}
-          className="hairline-border px-10 py-3 text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-white/5 transition-all text-brand-tan/60"
-        >
-          New Inference Trajectory
-        </button>
-      </motion.div>
+  <SectionLabel>Audit Protocol Complete</SectionLabel>
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="glass-panel p-8 flex flex-col items-center text-center border-emerald-500/10"
+  >
+    <div className="w-16 h-16 hairline-border flex items-center justify-center mb-4 text-emerald-500 bg-emerald-500/5">
+      <Shield size={28} />
     </div>
+    
+    <h3 className="font-display font-bold text-brand-tan mb-1 text-xl">Audit Synchronized</h3>
+    
+    {/* Master Token Section */}
+    <div className="my-6 p-6 bg-black/60 hairline-border w-full max-w-md">
+      <div className="flex items-center justify-center gap-2 mb-4">
+         <Lock size={12} className="text-brand-tan/40" />
+         <p className="text-[10px] font-mono text-brand-tan/40 uppercase tracking-[0.2em]">
+           Master Security Token
+         </p>
+      </div>
+      
+      <div className="flex flex-col gap-3">
+        <code className="text-[11px] font-mono text-emerald-400 bg-white/5 p-4 border border-brand-tan/10 break-all text-left select-all">
+          {sessionToken || 'GENERATING_KEY...'} 
+        </code>
+        
+        <button 
+          onClick={() => {
+            navigator.clipboard.writeText(sessionToken);
+            alert("Security Token saved to clipboard.");
+          }}
+          className="w-full bg-brand-tan text-brand-matte py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-brand-tan-muted transition-all"
+        >
+          Copy Session Token
+        </button>
+      </div>
+
+      <p className="text-[9px] text-brand-tan/30 mt-4 leading-relaxed italic">
+        This token is required to re-authorize access to this audit. <br/>
+        It has been automatically cached in your local session vault.
+      </p>
+    </div>
+
+    {/* --- UPDATED SESSION ID SECTION (FIXES MASKING ISSUE) --- */}
+    <div className="w-full max-w-md mb-8 flex flex-col gap-2">
+       <div className="flex items-center justify-between px-2">
+          <p className="text-[9px] font-mono text-brand-tan/30 uppercase tracking-widest">
+            Vault Reference (Session ID)
+          </p>
+          <button 
+            onClick={() => {
+                navigator.clipboard.writeText(sessionId);
+                alert("Session ID copied to clipboard.");
+            }}
+            className="text-[9px] font-bold text-brand-tan/60 hover:text-brand-tan transition-colors underline decoration-brand-tan/20 underline-offset-4"
+          >
+            COPY ID
+          </button>
+       </div>
+       <div className="bg-white/5 p-3 hairline-border">
+          <code className="text-[10px] font-mono text-brand-tan/60 break-all block text-left">
+            {sessionId}
+          </code>
+       </div>
+    </div>
+    {/* -------------------------------------------------------- */}
+    
+    <button
+      onClick={() => { setDone(false); setFile(null); }}
+      className="hairline-border px-10 py-3 text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-white/5 transition-all text-brand-tan/60"
+    >
+      New Inference Trajectory
+    </button>
+  </motion.div>
+</div>
   );
 }
   return (
@@ -458,7 +484,7 @@ const UploadSection = ({ onUploadSuccess }) => {
 };
 
 // ─── Analysis Tab ─────────────────────────────────────────────────────────────
-const DocumentAnalysisTab = ({ auditData, metrics, onUpload, sessionId }) => {
+const DocumentAnalysisTab = ({ auditData, metrics, onUpload, sessionId, sessionToken }) => {
   
   const handleExportPDF = async () => {
     const sid = sessionId || auditData[0]?.session_id;
@@ -531,14 +557,43 @@ const DocumentAnalysisTab = ({ auditData, metrics, onUpload, sessionId }) => {
           <SectionLabel>Analysis Overview</SectionLabel>
           
           {sessionId && (
-            <div className="flex items-center gap-2 bg-white/5 hairline-border px-2 py-1 rounded-sm transition-all hover:bg-white/10">
-              <Lock size={10} className="text-brand-tan/40" />
-              <span className="text-[8px] font-mono text-brand-tan/60 uppercase tracking-tighter">
-                Session: <span className="text-brand-tan font-bold">{sessionId.substring(0, 12)}...</span>
-              </span>
-            </div>
-          )}
+      <div className="flex items-center gap-2">
+        {/* 1. Session ID Badge */}
+        <div 
+          className="flex items-center gap-2 bg-white/5 hairline-border px-2 py-1 rounded-sm transition-all hover:bg-white/10 group cursor-pointer"
+          title="Click to copy full Session ID"
+          onClick={() => {
+            navigator.clipboard.writeText(sessionId);
+            alert("Session ID copied to clipboard.");
+          }}
+        >
+          <Lock size={10} className="text-brand-tan/40" />
+          <span className="text-[8px] font-mono text-brand-tan/60 uppercase tracking-tighter">
+            Session: <span className="text-brand-tan font-bold">{sessionId}</span>
+          </span>
+          <RefreshCw size={8} className="text-brand-tan/20 group-hover:text-brand-tan/60 transition-colors" />
         </div>
+
+        {/* 2. Master Token Badge (Added for easier access) */}
+        {sessionToken && (
+          <div 
+            className="flex items-center gap-2 bg-emerald-500/5 border border-emerald-500/20 px-2 py-1 rounded-sm transition-all hover:bg-emerald-500/10 group cursor-pointer"
+            title="Click to copy Master Security Token"
+            onClick={() => {
+              navigator.clipboard.writeText(sessionToken);
+              alert("Security Token copied to clipboard.");
+            }}
+          >
+            <Shield size={10} className="text-emerald-500/40" />
+            <span className="text-[8px] font-mono text-emerald-500/60 uppercase tracking-tighter">
+              Token: <span className="text-emerald-500 font-bold">{sessionToken}</span>
+            </span>
+            <RefreshCw size={8} className="text-emerald-500/20 group-hover:text-emerald-500/60 transition-colors" />
+          </div>
+        )}
+      </div>
+          )}
+          </div>
         {/* ------------------------------ */}
 
         {hasData && (
@@ -1103,7 +1158,7 @@ useEffect(() => {
 
     return { risks, grade: normalized.toFixed(3), summary, consensus };
   }, [auditData]);
-
+  const activeToken = sessionTokens[sessionId] || '';
   // Sidebar data — merge vault sessions with any local state shape
   const sidebarSessions = useMemo(() =>
     vaultSessions.map(s => ({
@@ -1148,12 +1203,14 @@ useEffect(() => {
                   metrics={metrics}
                   onUpload={handleUploadSuccess}
                   sessionId={sessionId}
+                  sessionToken={activeToken}
                 />
               ) : (
                 <PerformanceTab
                   auditData={auditData}
                   metrics={metrics}
                   sessionId={sessionId}
+                  sessionToken={activeToken}
                 />
               )}
             </motion.div>

@@ -35,7 +35,7 @@ endpoints:
 
 # Grading specification (Checklist Item 5)
 grading:
-  reward_range: [0.0, 1.0] # Validator strict range
+  reward_range: [0.01, 0.99] # Validator strict range
   score_aggregation: mean
   tasks:
     - id: basic_compliance
@@ -50,17 +50,17 @@ tasks:
   - id: "basic_compliance"
     difficulty: "easy"
     clauses: 3
-    reward_range: [0.0, 1.0]
+    reward_range: [0.01, 0.99]
 
   - id: "risk_audit"
     difficulty: "medium"
     clauses: 3
-    reward_range: [0.0, 1.0]
+    reward_range: [0.01, 0.99]
 
   - id: "clause_conflict"
     difficulty: "hard"
     clauses: 3
-    reward_range: [0.0, 1.0]
+    reward_range: [0.01, 0.99]
 
 framework:
   type: "gymnasium"

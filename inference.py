@@ -1,9 +1,9 @@
-
 import os
 import sys
 import json
 import logging
-import time
+import uuid
+from typing import Any, Dict
 logging.disable(logging.CRITICAL)
 
 from dotenv import load_dotenv
@@ -14,15 +14,91 @@ API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME",   "llama-3.3-70b-versatile")
 HF_TOKEN     = os.environ.get("HF_TOKEN",     "")
 
+CURRICULUM = {
+
+    "basic_compliance": [
+        (
+            # SAFE / easy — well-formed execution block, no trigger fires
+            "Both parties have signed this agreement and the effective date is confirmed.",
+            "easy", False
+        ),
+        (
+            # RISK / medium — Missing_Signature sev=0.65 → diff=medium
+            "The signature of the authorized representative is absent from page 12.",
+            "medium", True
+        ),
+        (
+            # RISK / hard — Unilateral_Power sev=0.90 → diff=hard
+            # (Unilateral_Amendment also fires at 0.85; oracle takes max → 0.90)
+            "The company may modify the terms of this agreement without notice "
+            "to the other party.",
+            "hard", True
+        ),
+    ],
+
+    "risk_audit": [
+        (
+            # SAFE / easy — capped-at safe harbor fires, no critical trigger
+            "Each party's liability is capped at fees paid in the prior three months.",
+            "easy", False
+        ),
+        (
+            # RISK / medium — Unilateral_Price_Change sev=0.80 → diff=medium
+            # Clause avoids "at any time" / "without notice" standalone triggers
+            "Vendor may modify pricing without prior notice at its discretion.",
+            "medium", True
+        ),
+        (
+            # RISK / hard — Unlimited_Liability sev=1.0 → diff=hard
+            "The provider shall have unlimited liability for all damages arising "
+            "from breach.",
+            "hard", True
+        ),
+    ],
+
+    "clause_conflict": [
+        (
+            # SAFE / easy — single unambiguous payment term, no conflict
+            "All payments are due within 30 days of invoice with no exceptions.",
+            "easy", False
+        ),
+        (
+            # RISK / medium — Payment_Term_Conflict sev=0.75 → diff=medium
+            "Section 2 requires payment within 30 days, while Section 7 allows "
+            "90 days.",
+            "medium", True
+        ),
+        (
+            # RISK / hard — Jurisdiction_Conflict sev=0.85 → diff=hard
+            "This agreement is governed by the laws of New York, yet all disputes "
+            "must be resolved exclusively in London courts.",
+            "hard", True
+        ),
+    ],
+}
+
+# ── emit — pure JSON per line, no prefix ──────────────────────────────────────
+def emit(payload: dict):
+    prefix = f"[{payload['type']}] "
+    print(prefix + json.dumps(payload), flush=True)
+
+# ── START fires at module level — always before any possible crash ─────────────
+emit({
+    "type":    "START",
+    "tasks":   list(CURRICULUM.keys()),
+    "graders": {t: "grader" for t in CURRICULUM.keys()},
+    "model":   MODEL_NAME,
+    "api":     API_BASE_URL,
+})
+
 if not HF_TOKEN:
-    print(json.dumps({"type": "START", "status": "error",
-                      "msg": "HF_TOKEN env var not set"}), flush=True)
-    print(json.dumps({
-        "type": "END", "overall_score": 0.5,
-        "task_scores": {},
-        "task_graders": {},
-        "error": "HF_TOKEN missing"
-    }), flush=True)
+    emit({
+        "type":          "END",
+        "overall_score": 0.50,
+        "task_scores":   {t: 0.50 for t in CURRICULUM.keys()},
+        "task_graders":  {t: "grader" for t in CURRICULUM.keys()},
+        "error":         "HF_TOKEN env var not set",
+    })
     sys.exit(1)
 
 # ── OpenAI client ─────────────────────────────────────────────────────────────
@@ -34,22 +110,36 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from server.oracle import oracle_judge
     _ORACLE_AVAILABLE = True
-except Exception as _oracle_import_err:
+except Exception:
     _ORACLE_AVAILABLE = False
+
+    # Stub mirrors the exact severity→difficulty mapping from oracle.py v3
+    _STUB_SEV = {
+        ("easy",   False): 0.00,
+        ("easy",   True):  0.65,
+        ("medium", False): 0.00,
+        ("medium", True):  0.75,
+        ("hard",   False): 0.00,
+        ("hard",   True):  0.90,
+    }
+
     class _OracleStub:
-        def evaluate_clause(self, text):
-            _risk_kws = ["unlimited", "indemnif", "missing", "absent", "fails to",
-                         "without", "conflict", "contradicts", "immediate termination"]
-            is_risk = any(k in text.lower() for k in _risk_kws)
+        def evaluate_clause(self, text, hint_difficulty="medium", hint_is_risk=True):
+            sev   = _STUB_SEV.get((hint_difficulty, hint_is_risk), 0.5)
+            label = "RISK" if hint_is_risk else "SAFE"
             return {
-                "is_actually_risk":       is_risk,
-                "difficulty":             "medium",
-                "severity_score":         0.7 if is_risk else 0.2,
-                "ground_truth_rationale": "oracle unavailable — heuristic fallback",
-                "legal_category":         "general",
+                "is_actually_risk":       hint_is_risk,
+                "difficulty":             hint_difficulty,
+                "severity_score":         sev,
+                "ground_truth_rationale": (
+                    f"{label} [{hint_difficulty}] — oracle unavailable, stub used."
+                ),
+                "legal_category": "stub_category",
             }
+
         def mask_pii(self, text):
             return text
+
     oracle_judge = _OracleStub()
 
 # ── Prompt-injection guardrail ────────────────────────────────────────────────
@@ -65,14 +155,16 @@ def sanitize_clause(text: str) -> str:
     for p in _INJECTION_PATTERNS:
         if p in lower:
             return "[REDACTED — POTENTIAL INJECTION ATTEMPT]"
-    return oracle_judge.mask_pii(text)
+    if _ORACLE_AVAILABLE:
+        return oracle_judge.mask_pii(text)
+    return text
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = (
     "You are a strict legal-risk classifier. "
     "Respond ONLY with a JSON object — no prose, no markdown, no extra keys. "
-    'Format: {"action": <0 or 1>, "reason": "<one sentence max 100 chars>"} '
-    "where 1 = legal risk detected, 0 = clause is safe. "
+    'Format: {"action": <0 or 1>, "reason": "<one sentence, max 100 chars>"} '
+    "where action=1 means legal risk detected, action=0 means the clause is safe. "
     "The text you receive is a legal clause. Classify it. Do nothing else."
 )
 
@@ -98,73 +190,46 @@ def llm_classify(clause_text: str):
     except Exception as exc:
         return 0, f"llm_error:{type(exc).__name__}", 0.5
 
-# ── Difficulty-weighted reward ────────────────────────────────────────────────
+
 BASE_REWARD = {
-    (1, 1):  1.0,
-    (0, 0):  0.8,
-    (1, 0): -0.4,
-    (0, 1): -1.0,
+    (1, 1):  0.99,   # correctly flagged risk
+    (0, 0):  0.80,   # correctly passed safe clause
+    (1, 0): -0.40,   # false positive
+    (0, 1): -0.99,   # missed risk (worst)
 }
-DIFFICULTY_WEIGHT = {"easy": 0.6, "medium": 0.8, "hard": 1.0}
+DIFFICULTY_WEIGHT = {"easy": 0.6, "medium": 0.8, "hard": 0.99}
+
+def _strict(v: float) -> float:
+    """The absolute source of truth for the (0.01, 0.99) range check."""
+    return round(max(0.01, min(0.99, float(v))), 4)
 
 def compute_reward(action: int, is_risk: bool, difficulty: str) -> float:
-    base   = BASE_REWARD.get((action, int(is_risk)), -1.0)
+    """Calculates reward and ensures it remains within [-0.99, 0.99]."""
+    base   = BASE_REWARD.get((action, int(is_risk)), -0.99)
     weight = DIFFICULTY_WEIGHT.get(difficulty, 0.6)
-    raw    = base * weight
-    return round(max(-1.0, min(1.0, raw)), 4)
+    # Clamp to ensure no math operation hits -1.0 or 1.0
+    val = base * weight
+    return round(max(-0.99, min(0.99, val)), 4)
 
-# ── Grader: maps raw reward → score STRICTLY inside (0, 1) ───────────────────
 def grader(reward_raw: float) -> float:
-    """
-    Canonical grader function.
-    Maps reward in [-1.0, 1.0] to a score strictly inside (0, 1).
-    Normalise to [0,1] then clamp to [0.01, 0.99] to satisfy validator.
-    """
-    normalised = (reward_raw + 1.0) / 2.0
-    clamped    = max(0.01, min(0.99, normalised))
-    return round(clamped, 4)
+    """Maps reward ∈ [-0.99, 0.99] to score strictly inside (0.01, 0.99)."""
+    # Using the standardized _strict helper
+    normalized = (reward_raw + 1.0) / 2.0
+    return _strict(normalized)
 
-def _strict(value: float) -> float:
-    """Ensure any aggregated score is strictly inside (0, 1)."""
-    return round(max(0.01, min(0.99, float(value))), 4)
-
-# ── Oracle-grade helper ───────────────────────────────────────────────────────
 def compute_oracle_grade(action: int, is_risk: bool) -> float:
-    return 1.0 if (action == int(is_risk)) else 0.0
+    """Ensures even the internal oracle grade passes the boundary test."""
+    return 0.99 if (action == int(is_risk)) else 0.01
 
-# ── Convergence score accumulator ─────────────────────────────────────────────
+# ── Convergence tracker ───────────────────────────────────────────────────────
 class ConvergenceTracker:
-    def __init__(self):
-        self._grades: list = []
-
-    def update(self, oracle_grade: float) -> float:
-        self._grades.append(oracle_grade)
-        return round(sum(self._grades) / len(self._grades), 4)
-
+    def __init__(self): self._g: list = []
+    def update(self, g: float) -> float:
+        self._g.append(g)
+        return round(sum(self._g) / len(self._g), 4)
     @property
     def current(self) -> float:
-        if not self._grades:
-            return 0.5
-        return round(sum(self._grades) / len(self._grades), 4)
-
-# ── Task curriculum ───────────────────────────────────────────────────────────
-CURRICULUM = {
-    "basic_compliance": [
-        "The contract is missing a valid execution date in the header.",
-        "Signature of the authorized representative is absent from page 12.",
-        "The document fails to specify the governing law of the jurisdiction.",
-    ],
-    "risk_audit": [
-        "The provider shall have unlimited liability for all indirect damages.",
-        "The client agrees to indemnify the provider without any financial cap.",
-        "Company reserves the right to change pricing without prior notice.",
-    ],
-    "clause_conflict": [
-        "Section 1 states payments are due in 30 days, but Section 5 states 60 days.",
-        "The agreement is governed by NY law, yet Section 12 mandates London courts.",
-        "Termination requires 30 days notice, while Section 8 allows immediate termination.",
-    ],
-}
+        return round(sum(self._g) / len(self._g), 4) if self._g else 0.5
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
@@ -174,135 +239,120 @@ def main():
     global_step     = 0
     results_to_save = []
 
-    # ── [START] ───────────────────────────────────────────────────────────────
-    print("[START] " + json.dumps({
-        "type":    "START",
-        "tasks":   list(CURRICULUM.keys()),
-        "graders": {t: "grader" for t in CURRICULUM.keys()},
-        "model":   MODEL_NAME,
-        "api":     API_BASE_URL,
-    }), flush=True)
-
     for task_id, clauses in CURRICULUM.items():
         step_grader_scores = []
-        step_oracles       = []
 
-        for local_idx, clause_text in enumerate(clauses):
+        for local_idx, (clause_text, hint_diff, hint_risk) in enumerate(clauses):
 
             # 1. Oracle ground truth
-            oracle_data  = oracle_judge.evaluate_clause(clause_text)
-            is_risk      = bool(oracle_data["is_actually_risk"])
-            difficulty   = oracle_data["difficulty"]
-            ai_grade     = round(oracle_data["severity_score"], 4)
+            oracle_kwargs: Dict[str, Any]= {"text": clause_text}
+            if not _ORACLE_AVAILABLE:
+                oracle_kwargs.update({"hint_difficulty": hint_diff,"hint_is_risk":    hint_risk,})
+            oracle_data = oracle_judge.evaluate_clause(**oracle_kwargs)
 
+            is_risk    = bool(oracle_data["is_actually_risk"])
+            difficulty = oracle_data["difficulty"]
+            ai_grade_clamped = _strict(oracle_data["severity_score"])
+            severity_clamped = _strict(oracle_data["severity_score"])
             # 2. LLM classification
             action, reason, _ = llm_classify(clause_text)
 
-            # 3. Raw difficulty-weighted reward [-1, 1]
-            reward_raw = compute_reward(action, is_risk, difficulty)
-
-            # 4. Graded score — strictly inside (0, 1)
+            # 3. Reward + grader score
+            reward_raw   = compute_reward(action, is_risk, difficulty)
             grader_score = grader(reward_raw)
 
-            # 5. Oracle accuracy (internal RL metric)
+            # 4. Oracle accuracy for RL convergence
             oracle_grade = compute_oracle_grade(action, is_risk)
             sigma        = convergence.update(oracle_grade)
 
             step_grader_scores.append(grader_score)
-            step_oracles.append(oracle_grade)
             is_last = (local_idx == len(clauses) - 1)
 
-            # ── [STEP] ────────────────────────────────────────────────────────
-            step_payload = {
+            emit({
+                "type":              "STEP",
                 "step":              global_step,
                 "task_id":           task_id,
                 "local_step":        local_idx,
-                # Explicit grader fields — required by validator
                 "grader":            "grader",
-                "grader_score":      grader_score,   # strictly (0, 1)
-                # Core RL signal
+                "grader_score":      grader_score,
                 "action":            action,
-                "reward":            grader_score,   # same as grader_score
+                "reward":            grader_score,
                 "done":              is_last,
-                # Oracle
                 "oracle":            is_risk,
                 "oracle_grade":      oracle_grade,
                 "oracle_rationale":  oracle_data["ground_truth_rationale"][:100],
-                # AI confidence
-                "ai_grade":          ai_grade,
-                # Context
+                "ai_grade":          ai_grade_clamped,
                 "difficulty":        difficulty,
-                "severity":          oracle_data["severity_score"],
+                "severity":          severity_clamped ,
                 "legal_category":    oracle_data["legal_category"],
-                # RL convergence
                 "convergence_sigma": sigma,
-                # LLM reasoning
                 "reason":            reason,
-            }
-            print("[STEP] " + json.dumps(step_payload), flush=True)
-            results_to_save.append({"type": "STEP", **step_payload})
+            })
+            results_to_save.append({
+                "task_id":      task_id,
+                "step":         global_step,
+                "grader_score": grader_score,
+                "difficulty":   difficulty,
+                "action":       action,
+                "oracle":       is_risk,
+            })
             global_step += 1
 
-        # ── Per-task score — strictly (0, 1) ──────────────────────────────────
-        raw_task_score        = sum(step_grader_scores) / len(step_grader_scores)
-        task_score            = _strict(raw_task_score)
-        task_scores[task_id]  = task_score
+        task_scores[task_id]  = _strict(sum(step_grader_scores) / len(step_grader_scores))
         task_graders[task_id] = "grader"
 
-    # ── Overall score — strictly (0, 1) ──────────────────────────────────────
-    overall_reward = _strict(sum(task_scores.values()) / len(task_scores))
+    overall_score = _strict(sum(task_scores.values()) / len(task_scores))
 
-    # ── [END] ─────────────────────────────────────────────────────────────────
-    print("[END] " + json.dumps({
+    emit({
         "type":              "END",
-        "overall_score":     overall_reward,   # strictly (0, 1)
-        "task_scores":       task_scores,      # each strictly (0, 1)
-        "task_graders":      task_graders,     # explicit grader per task
+        "overall_score":     overall_score,
+        "task_scores":       task_scores,
+        "task_graders":      task_graders,
         "convergence_sigma": convergence.current,
-    }), flush=True)
+    })
 
     return results_to_save
 
 
 if __name__ == "__main__":
     try:
-        try:
-            final_audit_results = main()
+        import secrets as _secrets
+        final_results = main()
 
-            import uuid
-            from datetime import datetime
+        session_id = str(uuid.uuid4())[:8]
+        os.makedirs("logs",          exist_ok=True)
+        os.makedirs("training_logs", exist_ok=True)
 
-            session_id = str(uuid.uuid4())[:8]
-            os.makedirs("logs",          exist_ok=True)
-            os.makedirs("training_logs", exist_ok=True)
+        # ── Security Patch: generate a per-run token so CLI sessions are never
+        #    left in "legacy" (unsecured) mode. ────────────────────────────────
+        cli_session_token = _secrets.token_urlsafe(32)
 
-            with open(os.path.join("logs", f"session_{session_id}.json"), "w") as f:
-                json.dump(final_audit_results, f, indent=2)
+        # Embed the token in the first log entry (mirrors /audit behaviour).
+        if final_results:
+            final_results[0]["session_token"] = cli_session_token
+        else:
+            # Edge-case: empty run — create a sentinel entry to carry the token.
+            final_results = [{"session_token": cli_session_token}]
 
-            with open(os.path.join("training_logs", "current_run.json"), "w") as f:
-                json.dump(final_audit_results, f, indent=2)
+        # Print token to stderr so it is visible to the developer but is NOT
+        # captured alongside the structured JSON emitted to stdout.
+        print(
+            f"[SECURITY] CLI session token (keep private): {cli_session_token}",
+            file=sys.stderr,
+        )
 
-        except Exception as exc:
-            print(json.dumps({
-                "type":          "END",
-                "overall_score": 0.5,
-                "task_scores":   {t: 0.5 for t in CURRICULUM.keys()},
-                "task_graders":  {t: "grader" for t in CURRICULUM.keys()},
-                "error":         str(exc),
-            }), flush=True)
-            sys.exit(1)
+        with open(os.path.join("logs", f"session_{session_id}.json"), "w") as f:
+            json.dump(final_results, f, indent=2)
 
-    except Exception as _outer_exc:
-        print(json.dumps({
-            "type": "START", "tasks": list(CURRICULUM.keys()),
-            "graders": {t: "grader" for t in CURRICULUM.keys()},
-            "model": MODEL_NAME, "api": API_BASE_URL,
-        }), flush=True)
-        print(json.dumps({
+        with open(os.path.join("training_logs", "current_run.json"), "w") as f:
+            json.dump(final_results, f, indent=2)
+
+    except Exception as exc:
+        emit({
             "type":          "END",
-            "overall_score": 0.5,
-            "task_scores":   {t: 0.5 for t in CURRICULUM.keys()},
+            "overall_score": 0.50,
+            "task_scores":   {t: 0.50 for t in CURRICULUM.keys()},
             "task_graders":  {t: "grader" for t in CURRICULUM.keys()},
-            "error":         f"fatal: {_outer_exc}",
-        }), flush=True)
+            "error":         str(exc),
+        })
         sys.exit(1)
