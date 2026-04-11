@@ -20,7 +20,7 @@ class LegalAuditorObservation(Observation):
     clause_index: int = Field(..., description="The sequential index of the current clause")
     
     # Dual-Grading Metrics (Must be in 0.0 - 1.0 range for validator)
-    agent_reliability: float = Field(..., ge=0.01, le=0.99, description="Normalized Accuracy (Oracle Grade)")
-    ai_analysis_grade: float = Field(..., ge=0.01, le=0.99, description="Normalized Confidence (Subjective AI Grade)")
+    agent_reliability: float = Field(..., ge=0.05, le=0.95, description="Normalized Accuracy (Oracle Grade)")
+    ai_analysis_grade: float = Field(..., ge=0.05, le=0.95, description="Normalized Confidence (Subjective AI Grade)")
     
     is_risk_detected: bool = Field(default=False, description="Whether a risk was detected in this state")

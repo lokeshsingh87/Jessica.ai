@@ -33,10 +33,10 @@ HF_TOKEN     = os.environ.get("HF_TOKEN",     "")
 MODEL_NAME   = os.environ.get("MODEL_NAME",   "llama-3.3-70b-versatile")
 
 # ── Reward constants — single source of truth (mirrored in inference.py) ────
-REWARD_TRUE_POSITIVE  = 0.99
+REWARD_TRUE_POSITIVE  = 0.95
 REWARD_TRUE_NEGATIVE  = 0.80
 REWARD_FALSE_POSITIVE = 0.20
-REWARD_FALSE_NEGATIVE = 0.01
+REWARD_FALSE_NEGATIVE = 0.05
 
 # ── Task curriculum ───────────────────────────────────────────────────────────
 TASK_DATA: Dict[str, List[str]] = {

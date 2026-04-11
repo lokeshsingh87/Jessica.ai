@@ -47,7 +47,7 @@ class LegalAuditorEnv(
         observation = LegalAuditorObservation(
             clause_text       = obs_data.get("clause_text", ""),
             clause_index      = obs_data.get("clause_index", 0),
-            agent_reliability = max(0.01, float(obs_data.get("agent_reliability", 0.01))),
+            agent_reliability = max(0.0, float(obs_data.get("agent_reliability", 0.01))),
             ai_analysis_grade = max(0.01, float(obs_data.get("ai_analysis_grade", 0.01))),
             is_risk_detected  = obs_data.get("is_risk_detected", False)
         )

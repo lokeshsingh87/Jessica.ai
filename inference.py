@@ -201,7 +201,7 @@ DIFFICULTY_WEIGHT = {"easy": 0.6, "medium": 0.8, "hard": 0.99}
 
 def _strict(v: float) -> float:
     """The absolute source of truth for the (0.01, 0.99) range check."""
-    return round(max(0.01, min(0.99, float(v))), 4)
+    return round(max(0.0512, min(0.9488, float(v))), 4)
 
 def compute_reward(action: int, is_risk: bool, difficulty: str) -> float:
     """Calculates reward and ensures it remains within [-0.99, 0.99]."""
@@ -209,7 +209,7 @@ def compute_reward(action: int, is_risk: bool, difficulty: str) -> float:
     weight = DIFFICULTY_WEIGHT.get(difficulty, 0.6)
     # Clamp to ensure no math operation hits -1.0 or 1.0
     val = base * weight
-    return round(max(-0.99, min(0.99, val)), 4)
+    return round(max(-0.9488, min(0.9488, val)), 4)
 
 def grader(reward_raw: float) -> float:
     """Maps reward ∈ [-0.99, 0.99] to score strictly inside (0.01, 0.99)."""
@@ -219,7 +219,7 @@ def grader(reward_raw: float) -> float:
 
 def compute_oracle_grade(action: int, is_risk: bool) -> float:
     """Ensures even the internal oracle grade passes the boundary test."""
-    return 0.99 if (action == int(is_risk)) else 0.01
+    return 0.9412 if (action == int(is_risk)) else 0.0588
 
 # ── Convergence tracker ───────────────────────────────────────────────────────
 class ConvergenceTracker:
