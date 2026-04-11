@@ -115,8 +115,8 @@ class LegalAuditorEnvironment(
         return LegalAuditorObservation(
             clause_text       = text,
             clause_index      = self.clause_index,
-            agent_reliability = round(max(0.01, min(0.99, self.current_reliability)), 4),
-            ai_analysis_grade = round(max(0.01, min(0.99, self.analysis_confidence)), 4),
+            agent_reliability = round(max(0.05, min(0.95, self.current_reliability)), 4),
+            ai_analysis_grade = round(max(0.05, min(0.95, self.analysis_confidence)), 4),
             is_risk_detected  = False,
         )
 
@@ -125,16 +125,20 @@ class LegalAuditorEnvironment(
         return LegalAuditorState(
             total_reward        = round(float(self.total_agent_reward), 4),
             processed_steps     = self.clause_index,
-            current_reliability = round(max(0.01, min(0.99, self.current_reliability)), 4),
-            analysis_confidence = round(max(0.01, min(0.99, self.analysis_confidence)), 4),
+            current_reliability = round(max(0.05, min(0.95, self.current_reliability)), 4),
+            analysis_confidence = round(max(0.05, min(0.95, self.analysis_confidence)), 4),
         )
-
+    def _normalize(self,val: float) -> float:
+    # Maps [-0.99, 0.99] range to [0, 1] range
+        norm = (val + 1.0) / 2.0
+    # Apply strict buffer to stay away from 0.0 and 1.0
+        return round(max(0.0512, min(0.9488, norm)), 4)
     def step(
         self, action: LegalAuditorAction
     ) -> Tuple[LegalAuditorObservation, float, bool, Dict[str, Any]]:
         # Handle terminal state boundary
         if self.clause_index >= len(self.current_doc_clauses):
-            return self._get_current_obs(), 0.01, True, {}
+            return self._get_current_obs(), 0.05, True, {}
 
         text        = self.current_doc_clauses[self.clause_index]
         oracle_data = oracle_judge.evaluate_clause(text)
@@ -146,14 +150,14 @@ class LegalAuditorEnvironment(
         elif action.action == 1 and label == 0: raw_reward = REWARD_FALSE_POSITIVE
         else:                                   raw_reward = REWARD_FALSE_NEGATIVE
 
-        # ── CRITICAL CHANGE: Clamp reward strictly between 0.01 and 0.99 ──
-        reward = round(max(0.01, min(0.99, raw_reward)), 4)
+        # ── CRITICAL CHANGE: Clamp reward strictly between 0.05 and 0.95 ──
+        reward = self._normalize(raw_reward)
 
         self.total_agent_reward  += reward
         self.clause_index        += 1
         
         # Recalculate reliability based on clamped rewards
-        self.current_reliability  = self.total_agent_reward / self.clause_index
+        self.current_reliability = self._normalize(self.total_agent_reward / self.clause_index if self.clause_index > 0 else 0)
         self.analysis_confidence  = reward
 
         self.session_buffer.append({
@@ -177,7 +181,7 @@ class LegalAuditorEnvironment(
             self._get_current_obs(), 
             reward, 
             done, 
-            {"ai_grade": round(max(0.01, min(0.99, self.analysis_confidence)), 4)}
+            {"ai_grade": round(max(0.05, min(0.95, self.analysis_confidence)), 4)}
         )
 
 
