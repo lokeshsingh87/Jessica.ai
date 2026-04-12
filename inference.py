@@ -323,11 +323,11 @@ def main():
                 "oracle":       is_risk,
             })
             global_step += 1
-
-        task_scores[task_id]  = _strict(sum(step_grader_scores) / len(step_grader_scores))
+        avg_step_score = sum(step_grader_scores) / len(step_grader_scores) if step_grader_scores else 0.5
+        task_scores[task_id]  = _strict(avg_step_score)
         task_graders[task_id] = "grader"
-
-    overall_score = _strict(sum(task_scores.values()) / len(task_scores))
+    raw_overall = sum(task_scores.values()) / len(task_scores) if task_scores else 0.5
+    overall_score = _strict(raw_overall)
 
     emit({
         "type":              "END",
