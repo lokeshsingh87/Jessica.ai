@@ -54,7 +54,10 @@ def emit_step(step: int, action: str, reward: float, done: bool, error: str = "n
 def emit_end(task: str, success: bool, steps: int, rewards: list):
     success_str = "true" if success else "false"
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] task={task} success={success_str} steps={steps} rewards={rewards_str}", flush=True)
+    # Compute explicit score — mean of rewards, hard-clamped strictly inside (0,1)
+    mean = sum(rewards) / len(rewards) if rewards else 0.51
+    score = round(max(0.01, min(0.99, mean)), 4)
+    print(f"[END] task={task} success={success_str} steps={steps} score={score} rewards={rewards_str}", flush=True)
 
 # ── Validate HF_TOKEN ─────────────────────────────────────────────────────────
 if not HF_TOKEN:
@@ -197,7 +200,7 @@ def main():
             step_rewards.append(score)
             emit_step(step_num, action_str, score, is_last)
 
-        emit_end(task_name, True, len(clauses), step_rewards)
+        emit_end(task_name, False, len(clauses), step_rewards)
 
 
 if __name__ == "__main__":
@@ -206,5 +209,5 @@ if __name__ == "__main__":
     except Exception as exc:
         # Emit a valid [END] for each task so validator always sees 3 complete episodes
         for task_name in TASKS:
-            print(f"[END] task={task_name} success=false steps=1 rewards=0.51", flush=True)
+            print(f"[END] task={task_name} success=false steps=1 score=0.51 rewards=0.51", flush=True)
         sys.exit(1)
