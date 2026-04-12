@@ -238,22 +238,44 @@ def main():
     convergence     = ConvergenceTracker()
     global_step     = 0
     results_to_save = []
-
+    task_counter = 0
     for task_id, clauses in CURRICULUM.items():
+        task_counter += 1
+        # 🚩 ADDED RESET: Signals the start of a new task category
+        emit({
+            "type": "RESET",
+            "task": task_id,
+            "task_index": task_counter,
+            "step": global_step,
+            "info": f"Initializing {task_id}"
+        })
+        
         step_grader_scores = []
 
         for local_idx, (clause_text, hint_diff, hint_risk) in enumerate(clauses):
+            # 🚩 ADDED STATE: Signals environment readiness for an action
+            emit({
+                "type": "STATE",
+                "task": task_id,
+                "task_index": task_counter,
+                "step": global_step,
+                "difficulty": hint_diff,
+                "observation": "text_segment_loaded"
+            })
 
             # 1. Oracle ground truth
             oracle_kwargs: Dict[str, Any]= {"text": clause_text}
             if not _ORACLE_AVAILABLE:
-                oracle_kwargs.update({"hint_difficulty": hint_diff,"hint_is_risk":    hint_risk,})
+                oracle_kwargs.update({"hint_difficulty": hint_diff,"hint_is_risk": hint_risk})
             oracle_data = oracle_judge.evaluate_clause(**oracle_kwargs)
 
             is_risk    = bool(oracle_data["is_actually_risk"])
             difficulty = oracle_data["difficulty"]
-            ai_grade_clamped = _strict(oracle_data["severity_score"])
-            severity_clamped = _strict(oracle_data["severity_score"])
+            
+            # Using _strict ensures range compliance (0.05 - 0.95)
+            ai_grade_clamped = _strict(oracle_data.get("severity_score", 0.5))
+            severity_clamped = _strict(oracle_data.get("severity_score", 0.5))
+
             # 2. LLM classification
             action, reason, _ = llm_classify(clause_text)
 
@@ -268,10 +290,13 @@ def main():
             step_grader_scores.append(grader_score)
             is_last = (local_idx == len(clauses) - 1)
 
+            # 🚩 UPDATED STEP: Included 'task' key for classification
             emit({
                 "type":              "STEP",
+                "task":              task_id, 
                 "step":              global_step,
                 "task_id":           task_id,
+                "task_index":        task_counter,
                 "local_step":        local_idx,
                 "grader":            "grader",
                 "grader_score":      grader_score,
@@ -283,11 +308,12 @@ def main():
                 "oracle_rationale":  oracle_data["ground_truth_rationale"][:100],
                 "ai_grade":          ai_grade_clamped,
                 "difficulty":        difficulty,
-                "severity":          severity_clamped ,
+                "severity":          severity_clamped,
                 "legal_category":    oracle_data["legal_category"],
                 "convergence_sigma": sigma,
                 "reason":            reason,
             })
+            
             results_to_save.append({
                 "task_id":      task_id,
                 "step":         global_step,
@@ -313,7 +339,6 @@ def main():
 
     return results_to_save
 
-
 if __name__ == "__main__":
     try:
         import secrets as _secrets
@@ -333,13 +358,6 @@ if __name__ == "__main__":
         else:
             # Edge-case: empty run — create a sentinel entry to carry the token.
             final_results = [{"session_token": cli_session_token}]
-
-        # Print token to stderr so it is visible to the developer but is NOT
-        # captured alongside the structured JSON emitted to stdout.
-        print(
-            f"[SECURITY] CLI session token (keep private): {cli_session_token}",
-            file=sys.stderr,
-        )
 
         with open(os.path.join("logs", f"session_{session_id}.json"), "w") as f:
             json.dump(final_results, f, indent=2)
