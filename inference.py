@@ -70,10 +70,12 @@ GRADER_MAP = {
     "clause_conflict":  "grader_hard",
 }
 
-# ── FIX #1: emit — PURE JSON per line, NO prefix ─────────────────────────────
+# ── emit — [TYPE] prefix required by output parser, JSON payload for task validator
 def emit(payload: dict):
-    # Validator requires each line to be valid JSON — no prefix allowed
-    print(json.dumps(payload), flush=True)
+    # Output parser needs [START]/[STEP]/[END] prefix to detect structured blocks.
+    # Task validator parses the JSON object that follows the prefix.
+    prefix = f"[{payload['type']}] "
+    print(prefix + json.dumps(payload), flush=True)
 
 # ── START fires at module level ───────────────────────────────────────────────
 emit({
