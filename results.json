@@ -1,0 +1,14 @@
+{
+  "overall_score": 0.6267,
+  "task_scores": {
+    "basic_compliance": 0.78,
+    "risk_audit": 0.66,
+    "clause_conflict": 0.44
+  },
+  "task_graders": {
+    "basic_compliance": "grader_easy",
+    "risk_audit": "grader_medium",
+    "clause_conflict": "grader_hard"
+  },
+  "status": "completed"
+}
